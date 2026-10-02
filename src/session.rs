@@ -13,6 +13,8 @@ use std::os::fd::BorrowedFd;
 use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 use std::thread::JoinHandle;
 use std::thread::{self};
 
@@ -85,14 +87,19 @@ impl SessionACL {
 }
 
 /// Calls `destroy` on drop.
+///
+/// Requests hold the read lock while they're dispatched; `destroy` takes the
+/// write lock, so it waits for any request still in flight and can run from
+/// an event loop thread - which it has to, to run before FUSE_DESTROY is
+/// answered.
 #[derive(Debug)]
 pub(crate) struct FilesystemHolder<FS: Filesystem> {
-    pub(crate) fs: Option<FS>,
+    pub(crate) fs: RwLock<Option<FS>>,
 }
 
 impl<FS: Filesystem> FilesystemHolder<FS> {
-    fn destroy(&mut self) {
-        if let Some(mut fs) = self.fs.take() {
+    fn destroy(&self) {
+        if let Some(mut fs) = self.fs.write().take() {
             fs.destroy();
         }
     }
@@ -188,7 +195,7 @@ impl<FS: Filesystem> Session<FS> {
 
         let mut session = Session {
             filesystem: FilesystemHolder {
-                fs: Some(filesystem),
+                fs: RwLock::new(Some(filesystem)),
             },
             ch,
             mount: UmountOnDrop {
@@ -218,7 +225,7 @@ impl<FS: Filesystem> Session<FS> {
         let ch = Channel::new(Arc::new(DevFuse(File::from(fd))));
         let mut session = Session {
             filesystem: FilesystemHolder {
-                fs: Some(filesystem),
+                fs: RwLock::new(Some(filesystem)),
             },
             ch,
             mount: UmountOnDrop {
@@ -293,7 +300,7 @@ impl<FS: Filesystem> Session<FS> {
             return Err(io::Error::other("n_threads"));
         };
 
-        let mut filesystem = Arc::new(filesystem);
+        let filesystem = Arc::new(filesystem);
 
         let mut channels = Vec::with_capacity(n_threads);
 
@@ -350,12 +357,7 @@ impl<FS: Filesystem> Session<FS> {
             }
         }
 
-        let Some(filesystem) = Arc::get_mut(&mut filesystem) else {
-            return Err(io::Error::other(
-                "BUG: must have one refcount for filesystem",
-            ));
-        };
-
+        // If the session ended without FUSE_DESTROY:
         filesystem.destroy();
 
         reply
@@ -452,7 +454,7 @@ impl<FS: Filesystem> Session<FS> {
             );
 
             // Call filesystem init method and give it a chance to return an error
-            let Some(filesystem) = &mut self.filesystem.fs else {
+            let Some(filesystem) = self.filesystem.fs.get_mut() else {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "Bug: filesystem must be initialized during handshake",
@@ -581,6 +583,14 @@ impl<FS: Filesystem> SessionEventLoop<FS> {
                         // Dispatch request
                         Some(req) => {
                             if let Ok(Operation::Destroy(_)) = req.request.operation() {
+                                // Destroy, then answer: the kernel sends
+                                // FUSE_DESTROY synchronously (fuseblk,
+                                // virtiofs) so that unmount waits for the
+                                // filesystem to shut down. Answering first
+                                // lets unmount return - and the device be
+                                // reused - while destroy is still running.
+                                // libfuse's do_destroy() is in this order too.
+                                self.filesystem.destroy();
                                 req.reply::<ReplyEmpty>().ok();
                                 return Ok(());
                             } else {
