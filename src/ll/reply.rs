@@ -203,6 +203,7 @@ impl ResponseStruct<abi::fuse_statfs_out> {
 
 impl ResponseStruct<abi::fuse_create_out> {
     pub(crate) fn new_create(
+        nodeid: INodeNo,
         ttl: &Duration,
         attr: &Attr,
         generation: Generation,
@@ -212,7 +213,7 @@ impl ResponseStruct<abi::fuse_create_out> {
     ) -> Self {
         ResponseStruct(abi::fuse_create_out(
             abi::fuse_entry_out {
-                nodeid: attr.attr.ino,
+                nodeid: nodeid.into(),
                 generation: generation.into(),
                 entry_valid: ttl.as_secs(),
                 attr_valid: ttl.as_secs(),
@@ -819,6 +820,7 @@ mod test {
             blksize: 0xdd,
         };
         let r = ResponseStruct::new_create(
+            attr.ino,
             &ttl,
             &attr.into(),
             Generation(0xaa),

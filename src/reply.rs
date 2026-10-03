@@ -223,8 +223,22 @@ impl Reply for ReplyEntry {
 impl ReplyEntry {
     /// Reply to a request with the given entry
     pub fn entry(self, ttl: &Duration, attr: &FileAttr, generation: Generation) {
+        self.entry_with_nodeid(attr.ino, ttl, attr, generation);
+    }
+
+    /// Reply with an entry whose node ID - the handle the kernel uses in later
+    /// requests - is not its inode number, `attr.ino`, which is what stat()
+    /// reports. For filesystems whose inode numbers alone don't identify an
+    /// inode, e.g. because subvolumes share them.
+    pub fn entry_with_nodeid(
+        self,
+        nodeid: INodeNo,
+        ttl: &Duration,
+        attr: &FileAttr,
+        generation: Generation,
+    ) {
         self.reply.send_ll(&ll::ResponseStruct::new_entry(
-            attr.ino,
+            nodeid,
             generation,
             &attr.into(),
             *ttl,
@@ -450,8 +464,25 @@ impl ReplyCreate {
         fh: ll::FileHandle,
         flags: FopenFlags,
     ) {
+        self.created_with_nodeid(attr.ino, ttl, attr, generation, fh, flags);
+    }
+
+    /// As `created()`, with a node ID that isn't `attr.ino`: see
+    /// `ReplyEntry::entry_with_nodeid()`.
+    /// # Panics
+    /// When attempting to use kernel passthrough.
+    pub fn created_with_nodeid(
+        self,
+        nodeid: INodeNo,
+        ttl: &Duration,
+        attr: &FileAttr,
+        generation: Generation,
+        fh: ll::FileHandle,
+        flags: FopenFlags,
+    ) {
         assert!(!flags.contains(FopenFlags::FOPEN_PASSTHROUGH));
         self.reply.send_ll(&ll::ResponseStruct::new_create(
+            nodeid,
             ttl,
             &attr.into(),
             generation,
@@ -486,6 +517,7 @@ impl ReplyCreate {
         backing_id: &BackingId,
     ) {
         self.reply.send_ll(&ll::ResponseStruct::new_create(
+            attr.ino,
             ttl,
             &attr.into(),
             generation,
