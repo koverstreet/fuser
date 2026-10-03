@@ -161,6 +161,7 @@ pub(crate) enum fuse_opcode {
     FUSE_RENAME2 = 45,
     FUSE_LSEEK = 46,
     FUSE_COPY_FILE_RANGE = 47,
+    FUSE_SYNCFS = 50,
 
     #[cfg(target_os = "macos")]
     FUSE_SETVOLNAME = 61,
@@ -729,6 +730,12 @@ pub(crate) struct fuse_notify_retrieve_in {
     pub(crate) dummy2: u32,
     pub(crate) dummy3: u64,
     pub(crate) dummy4: u64,
+}
+
+#[repr(C)]
+#[derive(Debug, FromBytes, KnownLayout, Immutable)]
+pub(crate) struct fuse_syncfs_in {
+    pub(crate) padding: u64,
 }
 
 #[repr(C)]

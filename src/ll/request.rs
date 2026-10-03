@@ -1522,6 +1522,17 @@ mod op {
     }
 
     /// Copy the specified range from the source inode to the destination inode
+    /// Synchronize the whole filesystem: sync(2) and syncfs(2). The kernel sends
+    /// it on fuseblk mounts (and virtiofs); an ENOSYS reply turns it off for the
+    /// rest of the mount.
+    #[derive(Debug)]
+    pub(crate) struct SyncFs<'a> {
+        #[expect(dead_code)]
+        header: &'a fuse_in_header,
+        #[expect(dead_code)]
+        arg: &'a fuse_syncfs_in,
+    }
+
     #[derive(Debug, Clone, Copy)]
     pub(crate) struct CopyFileRangeFile {
         pub(crate) inode: INodeNo,
@@ -1852,6 +1863,10 @@ mod op {
                 header,
                 arg: data.fetch()?,
             }),
+            fuse_opcode::FUSE_SYNCFS => Operation::SyncFs(SyncFs {
+                header,
+                arg: data.fetch()?,
+            }),
 
             #[cfg(target_os = "macos")]
             fuse_opcode::FUSE_SETVOLNAME => Operation::SetVolName(SetVolName {
@@ -1926,6 +1941,7 @@ pub(crate) enum Operation<'a> {
     Rename2(Rename2<'a>),
     Lseek(Lseek<'a>),
     CopyFileRange(CopyFileRange<'a>),
+    SyncFs(#[expect(dead_code)] SyncFs<'a>),
 
     #[cfg(target_os = "macos")]
     SetVolName(SetVolName<'a>),
@@ -2102,6 +2118,7 @@ impl fmt::Display for Operation<'_> {
                 x.dest(),
                 x.len()
             ),
+            Operation::SyncFs(_) => write!(f, "SYNCFS"),
 
             #[cfg(target_os = "macos")]
             Operation::SetVolName(x) => write!(f, "SETVOLNAME name {:?}", x.name()),

@@ -331,6 +331,9 @@ impl<'a> RequestWithSender<'a> {
             ll::Operation::StatFs(_) => {
                 filesystem.statfs(self.request_header(), self.request.nodeid(), self.reply());
             }
+            ll::Operation::SyncFs(_) => {
+                filesystem.syncfs(self.request_header(), self.request.nodeid(), self.reply());
+            }
             ll::Operation::SetXAttr(x) => {
                 filesystem.setxattr(
                     self.request_header(),

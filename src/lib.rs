@@ -773,6 +773,14 @@ pub trait Filesystem: Send + Sync + 'static {
         reply.error(Errno::ENOSYS);
     }
 
+    /// Synchronize the whole filesystem: sync(2) and syncfs(2). Sent on fuseblk
+    /// mounts; replying ENOSYS tells the kernel not to send it again, after
+    /// which sync never reaches the filesystem.
+    fn syncfs(&self, _req: &Request, ino: INodeNo, reply: ReplyEmpty) {
+        warn!("[Not Implemented] syncfs(ino: {ino:#x?})");
+        reply.error(Errno::ENOSYS);
+    }
+
     /// Get file system statistics.
     fn statfs(&self, _req: &Request, _ino: INodeNo, reply: ReplyStatfs) {
         reply.statfs(0, 0, 0, 0, 0, 512, 255, 0);
